@@ -49,7 +49,7 @@ class VisualProcessor:
         img = (img.crop(bbox)).resize(self.vgg_size)
         fc1_features = self.VGG_model.predict(preprocess_input(
             np.expand_dims(image.img_to_array(img), axis=0)))
-        return fc1_features
+        return fc1_features.ravel()
 
     def process_reward(self, terminal_action, terminal_reward, IoU_prev, bbox, bbox_gt):
         self.getIoU(bbox, bbox_gt)

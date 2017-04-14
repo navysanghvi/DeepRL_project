@@ -45,11 +45,11 @@ class ReplayMemory(object):
             while check_terminal: 
                 i = random.sample(xrange(1,len(self.observations)), 1)[0]
                 check_terminal = self.terminals[i - 2] if i >= 2 else False
-            state = [self.observations[i - 1]]
+            state = self.observations[i - 1]
             action = self.actions[i - 1]
             reward = self.rewards[i - 1]
             is_terminal = self.terminals[i - 1]
-            next_state = [self.observations[i]]
+            next_state = self.observations[i]
             sequence_batch.append(sample(state=state, action=action, reward=reward,
                                           next_state=next_state, is_terminal=is_terminal))
         return sequence_batch

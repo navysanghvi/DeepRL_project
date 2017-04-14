@@ -66,7 +66,7 @@ def main():  # noqa: D103
     QN_Agent = DQNAgent(model=model, memory=memory, num_actions=num_actions, 
                         visual_processor=visual_processor, action_processor = action_processor,
                         img_dir = './train2014/', policy = policy, gamma=.99, 
-                        target_update_freq=10000, num_burn_in=5000, batch_size = 32, 
+                        target_update_freq=10000, num_burn_in=50, batch_size = 32,
                         is_double = True, is_dueling = True)
     
     # Compile agent
@@ -85,7 +85,7 @@ def main():  # noqa: D103
         # Train agent
         QN_Agent.fit(log_dir=log_dir, weight_dir=weight_dir, 
             log_interval=log_interval, weight_interval=weight_interval,
-            epochs=10, max_episode_length=100)
+            epochs=10, max_episode_length=80)
         
         # Save final weights
         QN_Agent.save_weights('project_weights_DQN.h5f', overwrite=True)

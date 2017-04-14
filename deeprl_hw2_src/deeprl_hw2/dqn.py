@@ -21,7 +21,7 @@ def mean_q(y_true, y_pred):
 class DQNAgent(object):
 
     def __init__(self, model, memory, num_actions, visual_processor = None, action_processor = None,
-                 text_processor = None, image_dir = './images/', policy=None, gamma=.99, action_fraction = 0.2, 
+                 text_processor = None, image_dir = '/Users/tejasnagendra/studies/ammml/coco/images/train2014/', policy=None, gamma=.99, action_fraction = 0.2,
                  terminal_reward = 3.0, target_update_freq=10000, num_burn_in=500, batch_size=32, 
                  test_policy=GreedyEpsilonPolicy(0.05), is_double=False, is_dueling=False, *args,**kwargs):
         self.memory = memory                                        # Replay Memory
@@ -102,7 +102,7 @@ class DQNAgent(object):
 
         # DURING TRAINING: Update only if at least num_burn_in samples are in memory
         if self.training and self.step > self.num_burn_in:
-            
+            print 'Updating policy!!!!!!!'
             # Get samples from replay memory
             samples = self.memory.sample(self.batch_size)
 
@@ -111,8 +111,7 @@ class DQNAgent(object):
             for e in samples:
                 s_0.append(e.state); s_1.append(e.next_state); act.append(e.action)
                 rew.append(e.reward); t_1.append(0. if e.is_terminal else 1.)
-            s_0=np.array(s_0); s_0=self.processor.process_batch(s_0)
-            s_1=np.array(s_1); s_1=self.processor.process_batch(s_1)
+            s_0=np.array(s_0); s_1=np.array(s_1)
             rew = np.array(rew); t_1 = np.array(t_1)
 
             # Get Q values from samples
@@ -247,8 +246,8 @@ class DQNAgent(object):
         
         # Initializing for training
         self.training = True; self.step = 0; episode = 0
-        image_data = DataSet('./data/data_train.json')
-        image_data.load(0.8)
+        image_data = DataSet('./deeprl_hw2/data/data_train.json')
+        image_data.load(0.1)
 
         # Logging
         log = Log_File(log_dir, log_interval)
@@ -293,7 +292,8 @@ class DQNAgent(object):
                 
                 # Process sentence for text features at start of new episode
                 text_observation = np.array(text).ravel()
-                
+
+                print visual_observation.shape, text_observation.shape, image_observation.shape, action_observation.shape
                 # Create combined state observed
                 combined_observation = np.concatenate((image_observation, visual_observation, 
                                         action_observation, text_observation))
@@ -315,7 +315,7 @@ class DQNAgent(object):
                                             action_observation, text_observation))
 
                     # Calculate reward
-                    terminal_action = 1 if action == self.num_actions else 0
+                    terminal_action = 1 if action == (self.num_actions-1) else 0
                     IoU_prev = self.visual_processor.IoU
                     reward = self.visual_processor.process_reward(terminal_action,
                         self.terminal_reward, IoU_prev, bbox, bbox_gt)
@@ -336,13 +336,12 @@ class DQNAgent(object):
                     self.step += 1
 
                     # End of epsiode
-                    if action == self.num_actions or episode_step > max_episode_length:
+                    if terminal_action or episode_step > max_episode_length:
                         self.memory.append(combined_observation, self.num_actions-1, 0.0, 1)
                         episode_logs = {'episode_reward': episode_reward,}
                         log.on_episode_end(episode, episode_logs)
                         weights.on_episode_end(episode, episode_logs)
                         print('End of episode ' + str(episode) + '. Reward = ' + str(episode_reward))
-                        episode += 1
                         break
 
             self.epoch += 1
