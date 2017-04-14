@@ -13,14 +13,15 @@ import tensorflow as tf
 from keras.layers import (Activation, Convolution2D, Dense, Flatten, Input,
                           Permute)
 
-from keras.models import Sequential
+from keras.models import Sequential, Model
+from keras.applications.vgg16 import VGG16
 from keras.optimizers import Adam
 import keras.backend as K
 
 from deeprl_hw2.dqn import DQNAgent
 from deeprl_hw2.policy import LinearDecayGreedyEpsilonPolicy, GreedyEpsilonPolicy
 from deeprl_hw2.core import ReplayMemory
-from deeprl_hw2.preprocessors import AtariPreprocessor, HistoryPreprocessor
+from deeprl_hw2.preprocessors import ActionHistoryProcessor,VisualProcessor
 from deeprl_hw2.callbacks import Log_File, Save_weights
 
 
@@ -36,50 +37,57 @@ def create_model(input_length, num_actions):  # noqa: D103
 def main():  # noqa: D103
     
     num_actions = 9
-    window_size = 10
-    max_size = 10000
+    history_length = 10
+    max_size = 200000
 
-    memory = ReplayMemory(window_length = window_size, max_size = max_size)
+    memory = ReplayMemory(max_size = max_size)
     
     # Create model
     model = create_model()
-                        
+           
+    # VGG16 model
+    base_model = VGG16(weights='imagenet')
+    VGG_model = Model(input = base_model.input, output = base_model.get_layer('fc1').output)
+
     # Create processors
-    processor = AtariPreprocessor(new_size)
-    processor_combined = HistoryPreprocessor(window_size)
+    visual_processor = VisualProcessor(VGG_model)
+    action_processor = ActionHistoryProcessor(num_actions, history_length = history_length)
 
     # Create policy
     policy = LinearDecayGreedyEpsilonPolicy(GreedyEpsilonPolicy(), attr_name='epsilon', 
-                                        start_value=1., end_value=.1,num_steps=1000000)
+                                        start_value=1., end_value=.1,num_steps=5)
     
     # Create agent
-    batch_size = 1 if no_replay else 32
-    t_upd_f = 1 if no_replay else 10000
-    QN_Agent = DQNAgent(model=model, num_actions=num_actions, policy=policy, memory=memory,
-                    processor=processor, processor_combined = processor_combined,
-                    batch_size = batch_size, num_burn_in=5000, gamma=.99, 
-                    target_update_freq=t_upd_f, train_frames=3, 
-                    is_double = is_double, is_dueling = is_dueling)
+    QN_Agent = DQNAgent(model=model, memory=memory, num_actions=num_actions, 
+                        visual_processor=visual_processor, action_processor = action_processor,
+                        img_dir = './train2014', policy = policy, gamma=.99, 
+                        target_update_freq=10000, num_burn_in=5000, batch_size = 32, 
+                        is_double = True, is_dueling = True)
     
     # Compile agent
     QN_Agent.compile(Adam(lr=.00025))
 
-    # Interval at which to save/test weights    
-    weight_interval = 100000
+    # To save/test weights, and log data    
+    weight_interval = 1000
+    weight_dir = 'project_weights_DQN_{episode}.h5f'
+    log_interval = 100
+    log_dir = 'project_log_DQN.json'
 
 
     ### DO YOU WANT TO TRAIN ?
     train = True
     if train:
         # Call functions for logging during training
-        logging = [Save_weights('hw2_' + args.env + '_weights_{step}.h5f', interval=weight_interval)]
-        logging += [Log_File('hw2_' + args.env + '_log.json', interval=100)]
+        logging = [Save_weights('project_weights_{episode}.h5f', interval=weight_interval)]
+        logging += [Log_File('project_log.json', interval=100)]
 
         # Train agent
-        QN_Agent.fit(env, callbacks=logging, num_steps=4000000, interval = 1000, no_replay=no_replay)
+        QN_Agent.fit(log_dir=log_dir, weight_dir=weight_dir, 
+            log_interval=log_interval, weight_interval=weight_interval,
+            epochs=10, max_episode_length=100)
         
         # Save final weights
-        QN_Agent.save_weights('hw2_results_' + args.env + '_weights.h5f', overwrite=True)
+        QN_Agent.save_weights('project_weights_DQN.h5f', overwrite=True)
     
     ### DO YOU WANT TO TEST ?
     test = False
