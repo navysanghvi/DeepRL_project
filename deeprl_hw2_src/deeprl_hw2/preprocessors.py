@@ -1,87 +1,58 @@
 """Suggested Preprocessors."""
 
 import numpy as np
-from keras.applications.vgg16 import VGG16
-from keras.preprocessing import image
-from keras.applications.vgg16 import preprocess_input
-import numpy as np
+from PIL import Image
+from core import Preprocessor
 
-class ActionHistoryProcessor:
-    def __init__(self, num_actions, history_length=1):
-        self.num_actions = num_actions
-        self.history_length = history_length
-        self.reset()
+class HistoryPreprocessor(Preprocessor):
+    def __init__(self, history_length=1):
+        self.history_length = history_length       # Maximum number of recent frames needed for the sequence
 
-    def process_action(self, latest_action):
-        if self.action_number < self.num_actions:
-            self.action_number += 1
-            self.action_history = np.insert(self.action_history, 0, latest_action)
-        else
-            self.action_history = np.insert(
-                np.delete(self.action_history, self.action_number-1), 0, latest_action)
-        self.action_vector = self.get_action_vector()
+    def process_state_for_network(self, current_frame, recent_frames,recent_end_frames):  # History needed to decide current action
+        state = [current_frame]                                                           # Recent_frames and recent_end_frames(deque)
+        index = len(recent_frames) - 1
+        # Check if the recent frames leak over different episodes
+        for checkval in range(0, self.history_length - 1):
+            current_index = index - checkval
+            current_end_frame = recent_end_frames[current_index - 1] if current_index - 1 >= 0 else False
+            if current_index < 0 or current_end_frame:
+                break                                          # Don't add the previous frame, it is from a different episode
+            state.insert(0, recent_frames[current_index]) 
+        while len(state) < self.history_length:
+            state.insert(0, np.zeros((state[0]).shape))
+        return state
 
-    def get_action_vector(self):
-        action_matrix = np.zeros((self.history_length, self.num_actions))
-        action_matrix[self.history_length-self.action_number:self.history_length, 
-                          self.action_history] = 1
-        action_vector = action_matrix.ravel()
-        return action_vector
+    def reset(self):   # Central reset implemented for the dqn agent and ignored within this class
+        pass
 
-    def reset(self):
-        self.action_number = 0
-        self.action_history = np.zeros(action_number)
-        self.action_vector = self.get_action_vector()
-
+    def get_config(self):
+        return {'history_length': self.history_length}
 
         
-class VisualProcessor:
-    def __init__(self, vgg_size, VGG_model, IoU_thresh, IoU_tol):
-        self.vgg_size = vgg_size
-        self.VGG_model = VGG_model
-        self.IoU_thresh = IoU_thresh
-        self.IoU_tol = IoU_tol
+class AtariPreprocessor(Preprocessor):
+    def __init__(self, new_size):
+        self.new_size = new_size
 
-    def process_bbox(self, bbox, img):
-        img = (img.crop(bbox)).resize(self.vgg_size)
-        fc1_features = self.VGG_model.predict(preprocess_input(
-            np.expand_dims(image.img_to_array(img), axis=0)))
-        return fc1_features
+    def process_state_for_memory(self, state):     # Scaled, converted to greyscale and stored as uint8
+        img = Image.fromarray(state)
+        img = img.resize(self.new_size).convert('L')
+        processed_state = np.array(img)
+        return processed_state.astype('uint8')  
 
-    def process_reward(self, terminal_action, terminal_reward, IoU_prev, bbox, bbox_gt):
-        self.getIoU(bbox, bbox_gt)
-        if terminal_action:
-            reward = terminal_reward if self.IoU > self.IoU_thresh else -terminal_reward
-        elif abs(self.IoU - IoU_prev) < self.IoU_tol:
-            reward = 0
-        else:
-            reward = 1 if self.IoU > IoU_prev else -1
+    def process_state_for_network(self, state):   # Scaled, converted to greyscale and stored as float32
+        img = Image.fromarray(state)
+        img = img.resize(self.new_size).convert('L')
+        processed_state = np.array(img)
+        return processed_state.astype('float32')
+
+    def process_batch(self, samples):              #The batches from replay memory converted to float32
+        processed_batch = samples.astype('float32') / 255.
+        return processed_batch
+
+    def process_reward(self, reward):              # Reward not clipped
+        #return np.clip(reward, -1., 1.)
         return reward
-    
-    def getIoU(bbox, bbox_gt):
-        w = bbox[2]-bbox[0]; h = bbox[3]-bbox[1]
-        w_gt = bbox_gt[2]-bbox_gt[0]; h_gt = bbox_gt[3]-bbox_gt[1]
-        inter_x1 = max(bbox[0], bbox_gt[0])
-        inter_y1 = max(bbox[1], bbox_gt[1])
-        inter_x2 = min(bbox[2]-1, bbox_gt[2]-1)
-        inter_y2 = min(bbox[3]-1, bbox_gt[3]-1)
-
-        if inter_x1 < inter_x2 and inter_y1 < inter_y2:
-            inter = (inter_x2-inter_x1+1)*(inter_y2-inter_y1+1)
-        else:
-            inter = 0
-        union = w*h + w_gt*h_gt - inter
-        self.IoU = float(inter)/union
-
-
-class TextProcessor:
-    def __init__(self, text_model):
-        self.text_model = text_model
-
-    def process_sentence(self, sentence):
-        #TODO
-        return text_features
-
+        
 
 class PreprocessorSequence(Preprocessor):
     def __init__(self, preprocessors):
