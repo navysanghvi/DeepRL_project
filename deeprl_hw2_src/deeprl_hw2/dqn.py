@@ -23,7 +23,7 @@ class DQNAgent(object):
 
     def __init__(self, model, memory, num_actions, visual_processor = None, action_processor = None,
                  text_processor = None, image_dir = './images/', policy=None, gamma=.99, action_fraction = 0.2, 
-                 terminal_reward = 3.0, target_update_freq=10000, num_burn_in=1000, batch_size=32, 
+                 terminal_reward = 3.0, target_update_freq=10000, num_burn_in=500, batch_size=32, 
                  test_policy=GreedyEpsilonPolicy(0.05), is_double=False, is_dueling=False, *args,**kwargs):
         self.memory = memory                                        # Replay Memory
         self.num_actions = num_actions                              # Number of actions
@@ -43,6 +43,7 @@ class DQNAgent(object):
         self.DuelDQN = is_dueling                                   # Whether dueling DQN is being employed
         self.training = False                                       # Whether we are in training mode
         self.step = 0                                               # Number of steps taken
+        self.epoch = 0                                              # Number of epochs in training done
         self.compiled = False                                       # Whether the agent has been compiled
 
         # Modify the model in case of dueling: 
@@ -242,8 +243,8 @@ class DQNAgent(object):
 
 
     ######################################## TRAINING ########################################
-    def fit(self, log_dir = './', weight_dir = './', log_interval = 1000, weight_interval = 1000, 
-            epochs=10, max_episode_length=200, interval=10000):
+    def fit(self, log_dir = './', weight_dir = './', log_interval = 1000, 
+            weight_interval = 1000, epochs=10, max_episode_length=100):
         
         # Initializing for training
         self.training = True; self.step = 0; episode = 0
@@ -344,6 +345,8 @@ class DQNAgent(object):
                         print('End of episode ' + str(episode) + '. Reward = ' + str(episode_reward))
                         episode += 1
                         break
+
+            self.epoch += 1
 
         # End of training
         log.save_data()

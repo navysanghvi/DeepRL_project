@@ -70,7 +70,7 @@ class LinearDecayGreedyEpsilonPolicy(Policy):       # Like GreedyEpsilonPolicy b
     def select_action(self, **kwargs):
         step_val = -float(self.start_value - self.end_value) / float(self.num_steps)
         start_val = float(self.start_value)
-        value = max(self.end_value, step_val * float(self.agent.step) + start_val)
+        value = max(self.end_value, step_val * float(self.agent.epoch) + start_val)
         setattr(self.policy, self.attr_name, value)
         return self.policy.select_action(**kwargs)
     
