@@ -2,7 +2,7 @@ import json
 import numpy as np
 from keras.callbacks import Callback,CallbackList 
 
-class Save_weights(Callback_base):         # Methods called during fit to periodically save model weights
+class Save_weights(Callback):         # Methods called during fit to periodically save model weights
     def __init__(self, filepath, interval):
         super(Save_weights, self).__init__()
         self.filepath = filepath

@@ -29,8 +29,7 @@ class RingBuffer(object):
     
 class ReplayMemory(object):
     def __init__(self, max_size):                 
-        self.window_length = window_length                          # Number of frames to stack together as a sequence
-        self.max_size = max_size                                    # Maximum Replay memory size
+        self.max_size = max_size
         self.actions = RingBuffer(max_size)                         
         self.rewards = RingBuffer(max_size)
         self.terminals = RingBuffer(max_size)

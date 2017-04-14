@@ -37,13 +37,17 @@ def create_model(input_length, num_actions):  # noqa: D103
 def main():  # noqa: D103
     
     num_actions = 9
-    history_length = 10
     max_size = 200000
+    action_history_size = 10
+    image_feature_size = 4096
+    text_feature_size = 16*100
+
+    input_length = (2*image_feature_size + num_actions*action_history_size + text_feature_size,)
 
     memory = ReplayMemory(max_size = max_size)
     
     # Create model
-    model = create_model()
+    model = create_model(input_length, num_actions)
            
     # VGG16 model
     base_model = VGG16(weights='imagenet')
@@ -51,7 +55,7 @@ def main():  # noqa: D103
 
     # Create processors
     visual_processor = VisualProcessor(VGG_model)
-    action_processor = ActionHistoryProcessor(num_actions, history_length = history_length)
+    action_processor = ActionHistoryProcessor(num_actions, history_length = action_history_size)
 
     # Create policy
     policy = LinearDecayGreedyEpsilonPolicy(GreedyEpsilonPolicy(), attr_name='epsilon', 
@@ -77,10 +81,6 @@ def main():  # noqa: D103
     ### DO YOU WANT TO TRAIN ?
     train = True
     if train:
-        # Call functions for logging during training
-        logging = [Save_weights('project_weights_{episode}.h5f', interval=weight_interval)]
-        logging += [Log_File('project_log.json', interval=100)]
-
         # Train agent
         QN_Agent.fit(log_dir=log_dir, weight_dir=weight_dir, 
             log_interval=log_interval, weight_interval=weight_interval,

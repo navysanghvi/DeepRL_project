@@ -84,9 +84,3 @@ class TextProcessor:
     def process_sentence(self, sentence):
         #TODO
         return text_features
-
-
-class PreprocessorSequence(Preprocessor):
-    def __init__(self, preprocessors):
-        pass
-
