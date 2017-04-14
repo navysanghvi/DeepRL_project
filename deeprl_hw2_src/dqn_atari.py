@@ -33,6 +33,7 @@ def create_model(input_length, num_actions):  # noqa: D103
     model.add(Activation('tanh'))
     model.add(Dense(num_actions))
     model.add((Activation('relu')))
+    return model
 
 def main():  # noqa: D103
     

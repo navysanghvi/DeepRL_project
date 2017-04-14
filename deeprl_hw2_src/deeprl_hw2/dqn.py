@@ -109,7 +109,7 @@ class DQNAgent(object):
             # Store (s,a,r,s',is_terminal) information of samples in corresponding arrays
             s_0 = []; s_1 = []; act = []; rew = []; t_1 = []
             for e in samples:
-                s_0.append(e.state); s_1.append(e.next_state); act.append(e.action); 
+                s_0.append(e.state); s_1.append(e.next_state); act.append(e.action)
                 rew.append(e.reward); t_1.append(0. if e.is_terminal else 1.)
             s_0=np.array(s_0); s_0=self.processor.process_batch(s_0)
             s_1=np.array(s_1); s_1=self.processor.process_batch(s_1)
@@ -248,7 +248,7 @@ class DQNAgent(object):
         # Initializing for training
         self.training = True; self.step = 0; episode = 0
         image_data = DataSet('./data/data_train.json')
-        image_data.load() 
+        image_data.load(0.8)
 
         # Logging
         log = Log_File(log_dir, log_interval)
@@ -262,17 +262,17 @@ class DQNAgent(object):
         # logging.on_train_begin()
 
         #### Iterate over number of epochs requested
-        for epoch in epochs:
+        for epoch in range(epochs):
             image_data.permute()
 
             #### Iterate over all sentences in training data
-            for image_name, sentence, bbox_gt in image_data.list_data:
-                episode += 1; log.metrics[episode] = [];
+            for image_name, sentence, bbox_gt, text in image_data.list_data:
+                episode += 1; log.metrics[episode] = []
                 episode_step = 0; episode_reward = 0.
 
                 # Get ground truth in (x1,y1,x2,y2) format
                 bbox_gt = (bbox_gt[0], bbox_gt[1], 
-                    bbox_gt[0]+bbox_gt[2], bbox[1]+bbox_gt[3])
+                    bbox_gt[0]+bbox_gt[2], bbox_gt[1]+bbox_gt[3])
 
                 # Reset action history at start of new episode
                 self.action_processor.reset()
@@ -292,7 +292,7 @@ class DQNAgent(object):
                 image_observation = deepcopy(visual_observation)
                 
                 # Process sentence for text features at start of new episode
-                # text_observation = self.text_processor.process_sentence(sentence)
+                text_observation = np.array(text).ravel()
                 
                 # Create combined state observed
                 combined_observation = np.concatenate((image_observation, visual_observation, 
@@ -317,7 +317,7 @@ class DQNAgent(object):
                     # Calculate reward
                     terminal_action = 1 if action == self.num_actions else 0
                     IoU_prev = self.visual_processor.IoU
-                    reward = self.visual_processor.process_reward(teminal_action, 
+                    reward = self.visual_processor.process_reward(terminal_action,
                         self.terminal_reward, IoU_prev, bbox, bbox_gt)
                     
                     # Append to memory
@@ -340,7 +340,7 @@ class DQNAgent(object):
                         self.memory.append(combined_observation, self.num_actions-1, 0.0, 1)
                         episode_logs = {'episode_reward': episode_reward,}
                         log.on_episode_end(episode, episode_logs)
-                        weight.on_episode_end(episode, episode_logs)
+                        weights.on_episode_end(episode, episode_logs)
                         print('End of episode ' + str(episode) + '. Reward = ' + str(episode_reward))
                         episode += 1
                         break
