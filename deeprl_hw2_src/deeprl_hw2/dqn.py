@@ -10,26 +10,34 @@ from copy import deepcopy
 import numpy as np
 from keras.models import model_from_config, Sequential, Model
 import keras.optimizers as optimizers
+from keras.preprocessing import image
+import random
 from objectives import masked_error
+from callbacks import Save_weights, Log_File
+from loadData import DataSet
 
 def mean_q(y_true, y_pred): 
     return K.mean(K.max(y_pred, axis=-1))
 
 class DQNAgent(object):
 
-    def __init__(self,model,memory,num_actions,processor = None,policy=None,gamma=.99,target_update_freq=10000,num_burn_in=1000,
-                 batch_size=32,train_frames=1,test_policy=GreedyEpsilonPolicy(0.05), is_double=True, 
-                 is_dueling=False,processor_combined = None, *args,**kwargs):
-        self.processor = processor                                  # Atari Processor
-        self.processor_combined = processor_combined                # History Processor
+    def __init__(self, model, memory, num_actions, visual_processor = None, action_processor = None,
+                 text_processor = None, image_dir = './images/', policy=None, gamma=.99, action_fraction = 0.2, 
+                 terminal_reward = 3.0, target_update_freq=10000, num_burn_in=1000, batch_size=32, 
+                 test_policy=GreedyEpsilonPolicy(0.05), is_double=False, is_dueling=False, *args,**kwargs):
         self.memory = memory                                        # Replay Memory
         self.num_actions = num_actions                              # Number of actions
+        self.visual_processor = visual_processor                    # Visual Processor
+        self.action_processor = action_processor                    # Action Processor
+        self.text_processor = text_processor                        # Text Processor
+        self.image_dir = image_dir                                  # Folder of images
         self.policy = policy                                        # Policy during training
         self.gamma = gamma                                          # Discount factor
+        self.alpha = action_fraction                                # Fraction for movement of bbox
+        self.terminal_reward = terminal_reward                      # Terminal action reward
         self.target_update_freq = int(target_update_freq)           # Frequency of updating target model to training model
         self.num_burn_in = num_burn_in                              # Min samples required in replay buffer
         self.batch_size = batch_size                                # Size of sample from replay buffer
-        self.train_frames = train_frames                            # Training model update frequency
         self.test_policy = test_policy                              # Policy during testing
         self.DDQN = is_double                                       # Whether double DQN is being employed
         self.DuelDQN = is_dueling                                   # Whether dueling DQN is being employed
@@ -86,53 +94,17 @@ class DQNAgent(object):
         # Agent has now been compiled
         self.compiled = True
 
-
-    ######################################## SELECT ACTION ########################################
-    def select_action(self, state):
-
-        # Get combined state according to window length specified
-        state_combined = self.processor_combined.process_state_for_network(state,
-            self.memory.recent_observations,self.memory.recent_terminals)
-        
-        # Get corresponding Q values for the combined state
-        q_values = self.calc_q_values(state_combined)
-        
-        # Select action according to train or test policy
-        if self.training:
-            action = self.policy.select_action(q_values=q_values)
-        else:
-            action = self.test_policy.select_action(q_values=q_values)
-        
-        # Set recent state and action
-        self.recent_observation = state
-        self.recent_action = action
-
-        # Return selected action
-        return action
-     
-    def calc_q_values(self, state):
-        batch = np.array([state])
-        batch = self.processor.process_batch(batch)
-        qval = self.model.predict_on_batch(batch)
-        qval = qval.flatten()
-        return qval
-
   
     ######################################## UPDATE NETWORK ########################################
-    def update_policy(self, reward, terminal, no_replay=False,):
-        self.memory.append(self.recent_observation, self.recent_action, reward, terminal,
-                               training=self.training)
+    def update_policy(self, reward):
+
         metrics = [np.nan for _ in self.metrics_names]
 
-        # DURING TRAINING: Update on every 'train_frames'th frame seen, and 
-        #                  only if at least num_burn_in samples are in memory
-        if self.training and self.step > self.num_burn_in and self.step % self.train_frames == 0:
+        # DURING TRAINING: Update only if at least num_burn_in samples are in memory
+        if self.training and self.step > self.num_burn_in:
             
-            # Get samples from replay memory (no replay if no_replay is active)
-            if(no_replay):
-            	samples = self.memory.sample(1, indexes = [self.memory.window_length])
-            else :
-            	samples = self.memory.sample(self.batch_size)
+            # Get samples from replay memory
+            samples = self.memory.sample(self.batch_size)
 
             # Store (s,a,r,s',is_terminal) information of samples in corresponding arrays
             s_0 = []; s_1 = []; act = []; rew = []; t_1 = []
@@ -169,7 +141,6 @@ class DQNAgent(object):
 
             # Update model by training on samples selected
             metrics = self.trainable_model.train_on_batch(ins + [target_Q_mat, mask_mat], [target_l, target_Q_mat])
-            #print self.model.metrics_names
             
             # Metrics for logs
             metrics = [metric for idx, metric in enumerate(metrics) if idx not in (1, 2)]  
@@ -202,68 +173,180 @@ class DQNAgent(object):
     
      
     ######################################## RESET START ########################################
-    def reset_start(self,env):
-        self.recent_action = None
-        self.recent_observation = None
-        if self.compiled:
-            self.model.reset_states()
-            self.target_model.reset_states()
-        observation = deepcopy(env.reset())
-        observation = self.processor.process_state_for_memory(observation)
-        return observation
+    def reset_start(self, img):
+        bbox = deepcopy((0,0, img.size[0], img.size[1]))
+        visual_observation = self.visual_processor.process_bbox(bbox, img)
+        return bbox, visual_observation
+
+
+    ######################################## SELECT ACTION ########################################
+    def select_action(self, combined_observation):
+        
+        # Get corresponding Q values for the combined state
+        q_values = (self.model.predict_on_batch(
+            np.array([combined_observation]))).flatten()
+        
+        # Select action according to train or test policy
+        p = self.policy if self.training else self.test_policy
+        action = p.select_action(q_values=q_values)
+        
+        # Set recent state and action
+        self.recent_observation = combined_observation
+        self.recent_action = action
+
+        # Return selected action
+        return action
+
+
+    ####################################### TAKE BBOX STEP #######################################
+    def visual_step(self, action, bbox, img_size):
+        width_change = self.alpha*(bbox[2] - bbox[0])
+        height_change = self.alpha*(bbox[3] - bbox[1])
+        
+        x1 = bbox[0] - width_change; x2 = bbox[2] + width_change
+        y1 = bbox[1] - height_change; y2 = bbox[3] + height_change
+        x1 = 0 if x1 < 0 else x1; x2 = img_size[0] if x2 > img_size[0] else x2
+        y1 = 0 if y1 < 0 else y1; y2 = img_size[1] if y2 > img_size[1] else y2
+        
+        x1_ = bbox[0] + width_change; x2_ = bbox[2] - width_change
+        y1_ = bbox[1] + height_change; y2_ = bbox[3] - height_change
+        
+        if(action == 0): # Right
+            bbox_next = (x1_, bbox[1], x2, bbox[3])
+
+        if(action == 1): # Left
+            bbox_next = (x1, bbox[1], x2_, bbox[3])
+        
+        if(action == 2): # Down
+            bbox_next = (bbox[0], y1_, bbox[2], y2)
+        
+        if(action == 3): # Up   
+            bbox_next = (bbox[0], y1, bbox[2], y2_)
+
+        if(action == 4): # Scale up
+            bbox_next = (x1, y1, x2, y2)
+
+        if(action == 5): # Scale down
+            bbox_next = (x1_, y1_, x2_, y2_)
+
+        if(action == 6): # Fatter
+            bbox_next = (x1, bbox[1], x2, bbox[3])
+
+        if(action == 7): # Taller
+            bbox_next = (bbox[0], y1, bbox[2], y2)
+
+        if(action == 8): # Stop
+            bbox_next = bbox
+
+        return bbox_next
 
 
     ######################################## TRAINING ########################################
-    def fit(self, env, num_steps, callbacks=None, interval=10000, no_replay = False):
+    def fit(self, log_dir = './', weight_dir = './', log_interval = 1000, weight_interval = 1000, 
+            epochs=10, max_episode_length=200, interval=10000):
         
         # Initializing for training
-        self.training = True; self.step = 0
-        episode = 0; observation = None
-        episode_reward = None; episode_step = None
+        self.training = True; self.step = 0; episode = 0
+        image_data = DataSet('./data/data_train.json')
+        image_data.load() 
 
         # Logging
-        logging = callbacks[:]; logging += [Print_progress(interval)]; 
-        logging = Loop_Callbacks(logging)
-        logging.set_model(self); logging._set_env(env)
-        logging.set_params({'num_steps': num_steps,})
-        logging.on_train_begin()
+        log = Log_File(log_dir, log_interval)
+        weights = Save_weights(weight_dir, weight_interval)
+        log.metrics_names = self.model.metrics_names
 
-        # Iterate over number of steps requested
-        while self.step < num_steps:
-                if observation is None:  
-                    logging.on_episode_begin(episode)
-                    episode_step = 0; episode_reward = 0.
-                    observation = self.reset_start(env)
+        # logging = callbacks[:]; logging += [Print_progress(interval)]; 
+        # logging = Loop_Callbacks(logging)
+        # logging.set_model(self); logging._set_env(env)
+        # logging.set_params({'num_steps': num_steps,})
+        # logging.on_train_begin()
+
+        #### Iterate over number of epochs requested
+        for epoch in epochs:
+            image_data.permute()
+
+            #### Iterate over all sentences in training data
+            for image_name, sentence, bbox_gt in image_data.list_data:
+                episode += 1; log.metrics[episode] = [];
+                episode_step = 0; episode_reward = 0.
+
+                # Get ground truth in (x1,y1,x2,y2) format
+                bbox_gt = (bbox_gt[0], bbox_gt[1], 
+                    bbox_gt[0]+bbox_gt[2], bbox[1]+bbox_gt[3])
+
+                # Reset action history at start of new episode
+                self.action_processor.reset()
+                action_observation = self.action_processor.action_vector
+
+                # Load image
+                image_path = self.image_dir + image_name
+                img = image.load_img(image_path)
+
+                # Reset bbox and bbox features at start of new episode
+                bbox, visual_observation = self.reset_start(img)
                 
-                logging.on_step_begin(episode_step)
+                # IoU of whole image with ground truth
+                self.visual_processor.getIoU(bbox, bbox_gt)
 
-                action = self.select_action(observation)
-                done = False		
-                observation, reward, done, info = env.step(action)
-                observation = deepcopy(observation)
-                if self.processor is not None:
-                   observation, reward = self.processor.process_step(observation, reward)
+                # Reset whole image features at start of new episode
+                image_observation = deepcopy(visual_observation)
                 
-                metrics = self.update_policy(reward,terminal=done, no_replay=no_replay)
-                step_logs = {'metrics': metrics,'episode': episode,}
-                logging.on_step_end(episode_step, step_logs)
+                # Process sentence for text features at start of new episode
+                # text_observation = self.text_processor.process_sentence(sentence)
+                
+                # Create combined state observed
+                combined_observation = np.concatenate((image_observation, visual_observation, 
+                                        action_observation, text_observation))
+                
+                #### Iterate till terminal action or max steps
+                while 1:
 
-                # Update trackers
-                episode_reward += reward
-                episode_step += 1
-                self.step += 1
+                    # Select action, process it for action history part of state
+                    action = self.select_action(combined_observation)
+                    self.action_processor.process_action(action)
+                    action_observation = self.action_processor.action_vector
 
-                # End of epsiode
-                if done:
-                    self.select_action(observation)
-                    self.update_policy(0.,no_replay=no_replay,terminal=done)
-                    episode_logs = {'episode_reward': episode_reward,}
-                    logging.on_episode_end(episode, episode_logs)
-                    episode += 1; observation = None
-                    episode_step = None; episode_reward = None
+                    # Execute action, process bounding box for bbox features part of state
+                    bbox = self.visual_step(action, bbox, img.size); bbox = deepcopy(bbox)
+                    visual_observation = self.visual_processor.process_bbox(bbox, img)
+                    
+                    # Create combined state observed
+                    combined_observation = np.concatenate((image_observation, visual_observation, 
+                                            action_observation, text_observation))
+
+                    # Calculate reward
+                    terminal_action = 1 if action == self.num_actions else 0
+                    IoU_prev = self.visual_processor.IoU
+                    reward = self.visual_processor.process_reward(teminal_action, 
+                        self.terminal_reward, IoU_prev, bbox, bbox_gt)
+                    
+                    # Append to memory
+                    self.memory.append(self.recent_observation, self.recent_action, 
+                                        reward, terminal_action)
+
+                    # Update policy
+                    metrics = self.update_policy(reward)
+                    
+                    step_logs = {'metrics': metrics,'episode': episode,}
+                    log.on_step_end(episode_step, step_logs)
+
+                    # Update trackers
+                    episode_reward += reward
+                    episode_step += 1
+                    self.step += 1
+
+                    # End of epsiode
+                    if action == self.num_actions or episode_step > max_episode_length:
+                        self.memory.append(combined_observation, self.num_actions-1, 0.0, 1)
+                        episode_logs = {'episode_reward': episode_reward,}
+                        log.on_episode_end(episode, episode_logs)
+                        weight.on_episode_end(episode, episode_logs)
+                        print('End of episode ' + str(episode) + '. Reward = ' + str(episode_reward))
+                        episode += 1
+                        break
 
         # End of training
-        logging.on_train_end(logs={'ended': True})
+        log.save_data()
 
 
     ######################################## TESTING ########################################

@@ -28,49 +28,34 @@ class RingBuffer(object):
         self.data[(self.start + self.length - 1) % self.maxlen] = value
     
 class ReplayMemory(object):
-    def __init__(self, window_length,max_size):                 
+    def __init__(self, max_size):                 
         self.window_length = window_length                          # Number of frames to stack together as a sequence
-        self.recent_observations = deque(maxlen=window_length)      # Stores the most recent frames
-        self.recent_terminals = deque(maxlen=window_length)         # If next frame to the current observation is terminal or not
         self.max_size = max_size                                    # Maximum Replay memory size
-        #Implemented as ring buffer instead of deque to avoid slow sampling
         self.actions = RingBuffer(max_size)                         
         self.rewards = RingBuffer(max_size)
         self.terminals = RingBuffer(max_size)
         self.observations = RingBuffer(max_size)
         
-    def sample(self, batch_size,indexes=None):
-        if indexes is None:      
-           indexes = random.sample(xrange(1, len(self.observations)), batch_size) # Select random index from the filled replay memory
+    def sample(self, batch_size):  
+        indexes = random.sample(xrange(1, len(self.observations)), batch_size) 
         sequence_batch = []
-        #Check to ensure states don't leak through episodes
+        
         for i in indexes:
             # State i-2 indicates if current state(i-1) is terminal or not 
             check_terminal = self.terminals[i - 2] if i>=2 else False
-            while check_terminal: # If current index represents a terminal state, choose new index
+            while check_terminal: 
                 i = random.sample(xrange(1,len(self.observations)), 1)[0]
                 check_terminal = self.terminals[i - 2] if i >= 2 else False
-            state = [self.observations[i - 1]] # Choose this frame as first state of sequence
-            for j in range(0, self.window_length - 1):
-                current_i = i-j-2       # Check if any of the subsequent states after the chosen index are terminal
-                current_terminal = self.terminals[current_i - 1] if current_i - 1 > 0 else False
-                if current_i < 0 or current_terminal:
-                    break
-                state.insert(0, self.observations[current_i])  # If not terminal, populate sequence
-            while len(state) < self.window_length:
-                state.insert(0, np.zeros((state[0]).shape))    # Zero observation used if sufficient states not found due to terminal 
-            action = self.actions[i - 1]                       # Reward, action for current frame and next sequence observations set
+            state = [self.observations[i - 1]]
+            action = self.actions[i - 1]
             reward = self.rewards[i - 1]
             is_terminal = self.terminals[i - 1]
-            next_state = [np.copy(x) for x in state[1:]]        
-            next_state.append(self.observations[i])
-            sequence_batch.append(sample(state=state, action=action, reward=reward,            # Experience batch created
+            next_state = [self.observations[i]]
+            sequence_batch.append(sample(state=state, action=action, reward=reward,
                                           next_state=next_state, is_terminal=is_terminal))
         return sequence_batch
 
-    def append(self, observation, action, reward, terminal, training=True):
-        self.recent_observations.append(observation)
-        self.recent_terminals.append(terminal)
+    def append(self, observation, action, reward, terminal):
         self.observations.append(observation)
         self.actions.append(action)
         self.rewards.append(reward)
