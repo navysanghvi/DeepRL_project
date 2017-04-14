@@ -24,60 +24,25 @@ from deeprl_hw2.preprocessors import AtariPreprocessor, HistoryPreprocessor
 from deeprl_hw2.callbacks import Log_File, Save_weights
 
 
-def create_model(window, new_size, num_actions, is_linear=False,
-                 model_name='q_network'):  # noqa: D103
-    
-    # Create layers according to linear or deep network requirements
-    input_length = (window,) + new_size
-    model = Sequential(name = model_name)
-    model.add(Permute((2, 3, 1), input_shape = input_length))
-    if not is_linear:
-        model.add(Convolution2D(32, 8, 8, subsample=(4, 4)))
-        model.add(Activation('relu'))
-        model.add(Convolution2D(64, 4, 4, subsample=(2, 2)))
-        model.add(Activation('relu'))
-        model.add(Convolution2D(64, 3, 3, subsample=(1, 1)))
-        model.add(Activation('relu'))
-    model.add(Flatten())
-    if not is_linear:
-        model.add(Dense(512))
-        model.add(Activation('relu'))
+def create_model(input_length, num_actions):  # noqa: D103
+    model = Sequential()
+    model.add(Dense(1024, input_shape = input_length))
+    model.add(Activation('tanh'))
+    model.add(Dense(1024))
+    model.add(Activation('tanh'))
     model.add(Dense(num_actions))
-    if not is_linear:
-        model.add(Activation('linear'))
-    return model
-
+    model.add((Activation('relu')))
 
 def main():  # noqa: D103
     
-    # Arguments
-    parser = argparse.ArgumentParser(description='Run DQN on Atari Breakout')
-    parser.add_argument('--env', default='SpaceInvaders-v0', help='Atari env name')
-    args = parser.parse_args()
+    num_actions = 9
+    window_size = 10
+    max_size = 10000
 
-    # Downsampled frame size
-    new_size = (84,84)
-
-    # Number of frames to input to the network as a Sequence
-    window_size = 4
-
-    # Linear network or not; Double network or not; Dueling network or not; no replay?
-    is_linear = False; is_double = False; is_dueling = False; no_replay = False
-
-    # Create Atari environment
-    env = gym.make(args.env)
-    env.seed(1)
-
-    # Number of actions in the environment
-    num_actions = env.action_space.n
-
-    # Create replay memory obect
-    max_size = (window_size+1) if no_replay else 1000000
     memory = ReplayMemory(window_length = window_size, max_size = max_size)
     
     # Create model
-    model = create_model(window_size, new_size, num_actions, is_linear = is_linear, 
-                        model_name='q_network')
+    model = create_model()
                         
     # Create processors
     processor = AtariPreprocessor(new_size)
