@@ -60,7 +60,7 @@ def main():  # noqa: D103
     # Create agent
     QN_Agent = DQNAgent(model=model, memory=memory, num_actions=num_actions, 
                         visual_processor=visual_processor, action_processor = action_processor,
-                        img_dir = './train2014', policy = policy, gamma=.99, 
+                        img_dir = './train2014/', policy = policy, gamma=.99, 
                         target_update_freq=10000, num_burn_in=5000, batch_size = 32, 
                         is_double = True, is_dueling = True)
     
